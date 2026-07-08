@@ -2772,7 +2772,34 @@ AutomationTab:Toggle({
         getgenv().HospitalFarmEnabled = state
     end,
 })
+local InstantFireToggle = AutomationTab:Toggle({
+    Title = "Instant Fire Prompt",
+    Desc = "Makes hold prompts instant",
+    Icon = "",
+    Value = false, -- default OFF
+    Callback = function(state)
+        getgenv().InstantFireEnabled = state
 
+        -- Apply to all existing prompts
+        for _, prompt in ipairs(game:GetDescendants()) do
+            if prompt:IsA("ProximityPrompt") then
+                if state then
+                    prompt.HoldDuration = 0
+                else
+                    prompt.HoldDuration = 1 -- reset default (adjust if needed)
+                end
+            end
+        end
+    end
+})
+-- Auto-apply to new prompts
+game.DescendantAdded:Connect(function(desc)
+    if desc:IsA("ProximityPrompt") then
+        if getgenv().InstantFireEnabled then
+            desc.HoldDuration = 0
+        end
+    end
+end)
 local ESPTab = Window:Tab({
     Title = "ESP",
     Icon = "eye", -- optional
