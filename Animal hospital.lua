@@ -1569,35 +1569,44 @@ PlayerTab:Slider({
         FLY_SPEED = v
     end,
 })
--- Create a toggle inside your tab
+-- Toggle to block sanity loss completely
 local Toggle = PlayerTab:Toggle({
-    Title = "Block Sanity Decrease",
-     Flag = "Block_sanity",
+    Title = "anti Sanity",
+    Flag = "Immortal_sanity",
     Default = false,
     Callback = function(state)
+        local player = game.Players.LocalPlayer
+        local Lib = require(game.ReplicatedStorage:WaitForChild("Lib"))
+
         if state then
-            print("Sanity decrease blocked ")
-            -- Hook: prevent LocalLoseSanity from running
-            local oldFunc = getgenv().LocalLoseSanity
-            if oldFunc then
-                getgenv().LocalLoseSanity = function(...) 
-                    print("Sanity decrease prevented.")
+            print("Sanity loss blocked and set to NaN")
+            -- Backup original
+            if not getgenv().PlayerLostSanityBackup then
+                getgenv().PlayerLostSanityBackup = Lib.Network.FireServer
+            end
+            -- Override FireServer for PlayerLostSanity
+            Lib.Network.FireServer = function(self, event, ...)
+                if event == "PlayerLostSanity" then
+                    print("Blocked sanity loss event.")
+                    player:SetAttribute("Sanity", 0/0) -- force NaN
+                    return
                 end
+                return getgenv().PlayerLostSanityBackup(self, event, ...)
             end
+            -- Lock sanity as NaN
+            player:SetAttribute("Sanity", 0/0)
+            player:GetAttributeChangedSignal("Sanity"):Connect(function()
+                player:SetAttribute("Sanity", 0/0)
+            end)
         else
-            print("Sanity decrease allowed ")
-            -- Restore original function if needed
-            if getgenv().LocalLoseSanityBackup then
-                getgenv().LocalLoseSanity = getgenv().LocalLoseSanityBackup
+            print("Sanity loss allowed again")
+            if getgenv().PlayerLostSanityBackup then
+                Lib.Network.FireServer = getgenv().PlayerLostSanityBackup
             end
+            player:SetAttribute("Sanity", 100)
         end
     end
 })
-
--- Backup the original function once
-if not getgenv().LocalLoseSanityBackup and getgenv().LocalLoseSanity then
-    getgenv().LocalLoseSanityBackup = getgenv().LocalLoseSanity
-end
 -- ═══════════════════════════════════════════════
 --   TZ HUB | NoClip + Full ESP Tab (WindUI)
 --   Add below your existing PlayerTab code
