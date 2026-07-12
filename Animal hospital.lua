@@ -1607,6 +1607,60 @@ local Toggle = PlayerTab:Toggle({
         end
     end
 })
+
+-- Create Universal tab
+local UniversalTab = Window:Tab({
+    Title = "Universal",
+    Icon = "globe"
+})
+
+-- Section with credit
+UniversalTab:Section({
+    Title = "Float script by @muapx_0",
+    Desc = "Shared in the Discord bookclub"
+})
+
+UniversalTab:Button({
+    Title = "Run Float Script",
+    Desc = "Loads float script",
+    Callback = function()
+        local success, err = pcall(function()
+            loadstring(game:HttpGet("https://gist.githubusercontent.com/shigaraki-svg/6a037ac5d9a6386ccfc9871c18b757af/raw/05715144621af9d2249c8b6a883f12872eeebcbc/Float"))()
+        end)
+
+        if success then
+            print("[Universal] Float script executed!")
+        else
+            warn("[Universal] Error:", err)
+        end
+    end
+})
+-- Section with credit
+UniversalTab:Section({
+    Title = "Change speed script by @thebrickzcc",
+    Desc = "Shared in the Discord TZ HUB"
+})
+
+UniversalTab:Button({
+    Title = "Run change speed Script",
+    Desc = "Loads change speed script",
+    Callback = function()
+        local success, err = pcall(function()
+            loadstring(game:HttpGet("https://pastefy.app/m7JCkB8W/raw"))()
+        end)
+
+        if success then
+            print("[Universal] change speed script executed!")
+        else
+            warn("[Universal] Error:", err)
+        end
+    end
+})
+local Section = UniversalTab:Section({
+    Title = "Linear",
+    Desc = "exeute ",
+})
+ 
 -- ═══════════════════════════════════════════════
 --   TZ HUB | NoClip + Full ESP Tab (WindUI)
 --   Add below your existing PlayerTab code
@@ -2849,6 +2903,7 @@ createfeedback()
 createsettings()
 createcustom()
 createdonor()
+createsupport()
 WindUI:Notify({
     Title = "announcement",
     Content = "HAIIIII!!!:D",
