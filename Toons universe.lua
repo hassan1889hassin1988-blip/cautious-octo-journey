@@ -1651,79 +1651,118 @@ PlayerTab:Toggle({
     end,
 })
 -- ══════════════════════════════════
---   ESP SYSTEM (OPTIMIZED)
+--   ESP SYSTEM (CLEAN HUD EDITION)
 -- ══════════════════════════════════
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local lp = Players.LocalPlayer
 
 local ESP = {
-    Enabled        = false,
+    -- Categories stay disabled at startup
+    Players        = false,
+    Monsters       = false,
+    OilMachines    = false,
+    Computers      = false,
+    Items          = false,
+    PlayerItems    = false,
 
-    -- Categories on/off
-    Players        = true,
-    Monsters       = true,
-    OilMachines    = true,
-    Computers      = true,
-    Items          = true,
-    PlayerItems    = true,
-
-    -- Component toggles
+    -- Component styles are active and ready
     Highlight      = true,
     Trace          = true,
     Distance       = true,
     Name           = true,
 
-    -- Colors
-    PlayerColor    = Color3.fromRGB(99, 102, 241),
-    MonsterColor   = Color3.fromRGB(239, 68, 68),
-    MachineColor   = Color3.fromRGB(250, 204, 21),
-    ComputerColor  = Color3.fromRGB(34, 197, 94),
-    ItemColor      = Color3.fromRGB(251, 146, 60),
-    PlayerItemColor = Color3.fromRGB(152, 94, 255),
+    -- Multi-Select Dropdown States
+    OilSettings = {
+        ShowPlayer = false,
+        OilValue   = false,
+    },
+    ComputerSettings = {
+        ShowPlayer = false,
+        Progress   = false,
+    },
+    PlayerSettings = {
+        ShowStamina = false,
+        Health      = false,
+    },
 
-    -- Highlight fill transparency
-    FillTransp     = 0.6,
-    OutlineTransp  = 0,
+    -- Premium Cyberpunk Palette
+    PlayerColor    = Color3.fromRGB(99, 102, 241),   -- Indigo Neon
+    MonsterColor   = Color3.fromRGB(244, 63, 94),    -- Rose Cyber
+    MachineColor   = Color3.fromRGB(234, 179, 8),    -- Amber Neon
+    ComputerColor  = Color3.fromRGB(16, 185, 129),   -- Emerald Grid
+    ItemColor      = Color3.fromRGB(249, 115, 22),   -- Safety Orange
+    PlayerItemColor = Color3.fromRGB(168, 85, 247),  -- Psychedelic Purple
+
+    FillTransp     = 0.65,
+    OutlineTransp  = 0.1,
 
     _objects       = {},
 }
 
 local myAtt = nil
 
+-- Helper to safely parse both Array and Dictionary styles from Multi-Dropdowns
+local function checkSelected(selected, choice)
+    if not selected then return false end
+    if type(selected) == "table" then
+        for k, v in pairs(selected) do
+            if k == choice and v == true then return true end
+            if v == choice then return true end
+        end
+    end
+    return false
+end
 
--- ── Helpers ──────────────────────────────────────────────
+-- ── Minimalist HUD Generation (No Annoying Background Boxes) ──
 
 local function makeTag(part, label)
     local bb = Instance.new("BillboardGui")
     bb.Name            = "TZ_ESP_Tag"
     bb.AlwaysOnTop     = true
-    bb.Size            = UDim2.new(0, 120, 0, 40)
+    bb.Size            = UDim2.new(0, 160, 0, 60)
     bb.StudsOffset     = Vector3.new(0, 3, 0)
     bb.LightInfluence  = 0
     bb.Adornee         = part
 
+    -- Fully invisible clean container frame
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1, 0, 1, 0)
+    container.BackgroundTransparency = 1
+    container.Parent = bb
+
+    local layout = Instance.new("UIListLayout")
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.VerticalAlignment = Enum.VerticalAlignment.Center
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 1)
+    layout.Parent = container
+
     local nameLabel = Instance.new("TextLabel")
     nameLabel.Name            = "NameLabel"
-    nameLabel.Size            = UDim2.new(1, 0, 0.5, 0)
+    nameLabel.Size            = UDim2.new(1, 0, 0, 16)
     nameLabel.BackgroundTransparency = 1
     nameLabel.Text            = label
     nameLabel.Font            = Enum.Font.GothamBold
-    nameLabel.TextSize        = 13
-    nameLabel.TextStrokeTransparency = 0.5
-    nameLabel.Parent          = bb
+    nameLabel.TextSize        = 12
+    nameLabel.TextColor3      = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextStrokeTransparency = 0.3 -- High text contrast shadow
+    nameLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.LayoutOrder     = 1
+    nameLabel.Parent          = container
 
     local distLabel = Instance.new("TextLabel")
     distLabel.Name            = "DistLabel"
-    distLabel.Size            = UDim2.new(1, 0, 0.5, 0)
-    distLabel.Position        = UDim2.new(0, 0, 0.5, 0)
+    distLabel.Size            = UDim2.new(1, 0, 0, 40)
     distLabel.BackgroundTransparency = 1
     distLabel.Text            = ""
-    distLabel.TextColor3      = Color3.fromRGB(200, 200, 200)
-    distLabel.Font            = Enum.Font.Gotham
-    distLabel.TextSize        = 11
-    distLabel.TextStrokeTransparency = 0.6
-    distLabel.Parent          = bb
+    distLabel.TextColor3      = Color3.fromRGB(235, 235, 240)
+    distLabel.Font            = Enum.Font.Code
+    distLabel.TextSize        = 10
+    distLabel.TextStrokeTransparency = 0.4
+    distLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    distLabel.LayoutOrder     = 2
+    distLabel.Parent          = container
 
     bb.Parent = part
     return bb, nameLabel, distLabel
@@ -1745,11 +1784,12 @@ local function makeTrace(model, root)
 
     local beam = Instance.new("Beam")
     beam.Name          = "TZ_ESP_TracerLine"
-    beam.Width0        = 0.04
-    beam.Width1        = 0.04
+    beam.Width0        = 0.03
+    beam.Width1        = 0.03
     beam.FaceCamera    = true
     beam.Attachment1   = att
     beam.Attachment0   = myAtt
+    beam.Transparency  = NumberSequence.new(0.3) -- Perfectly fixed solid line
     beam.Parent        = model
     return beam
 end
@@ -1775,9 +1815,8 @@ local function cleanEntry(inst)
     ESP._objects[inst] = nil
 end
 
--- Efficiently updates object settings only when changes occur
 local function updateObjectVisuals(data)
-    local isVisible = ESP.Enabled and ESP[data.category]
+    local isVisible = ESP[data.category]
 
     local activeColor = ESP.PlayerColor
     if data.category == "Monsters" then activeColor = ESP.MonsterColor
@@ -1786,18 +1825,13 @@ local function updateObjectVisuals(data)
     elseif data.category == "Items" then activeColor = ESP.ItemColor
     elseif data.category == "PlayerItems" then activeColor = ESP.PlayerItemColor end
 
-    if data.isPhantasia then
-        local targetId = data.model:GetAttribute("TargetUserId")
-        local willHeal = not (typeof(targetId) == "number" and targetId == lp.UserId)
-        activeColor = willHeal and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-    end
-
     if data.highlight then
         data.highlight.Enabled = isVisible and ESP.Highlight
         if data.highlight.Enabled then
             data.highlight.FillColor = activeColor
             data.highlight.OutlineColor = activeColor
             data.highlight.FillTransparency = ESP.FillTransp
+            data.highlight.OutlineTransparency = ESP.OutlineTransp
         end
     end
 
@@ -1817,7 +1851,7 @@ local function updateObjectVisuals(data)
                 data.nameLabel.TextColor3 = activeColor
             end
             if data.distLabel then
-                data.distLabel.Visible = ESP.Distance
+                data.distLabel.Visible = true
             end
         end
     end
@@ -1856,13 +1890,6 @@ local function addESP(model, labelText, category)
         conns = {}
     }
 
-    if category == "Monsters" and model.Name == "TPhantasia" then
-        data.isPhantasia = true
-        table.insert(data.conns, model:GetAttributeChangedSignal("TargetUserId"):Connect(function()
-            updateObjectVisuals(data)
-        end))
-    end
-
     ESP._objects[model] = data
     updateObjectVisuals(data)
 
@@ -1875,49 +1902,51 @@ local function addESP(model, labelText, category)
     end)
 end
 
-local function refreshAll()
-    pcall(function()
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= lp and p.Character then
-                addESP(p.Character, p.DisplayName, "Players")
-            end
-        end
-    end)
+-- ── Event Handlers ─────────────────────────────────────────
 
-    -- Recurses into nested Folders (monster spawns create a subfolder of models)
-    local function scanFolderOptimized(container, category, defaultLabel)
-        if not container then return end
-        for _, child in ipairs(container:GetChildren()) do
-            if child:IsA("Folder") then
-                scanFolderOptimized(child, category, defaultLabel)
-            elseif child:IsA("Model") then
-                local label = (category == "Monsters" or category == "Items") and child.Name or defaultLabel
-                addESP(child, label, category)
-            elseif child:IsA("BasePart") then
-                addESP(child, child.Name or defaultLabel, category)
-            end
+local function setupFolderListener(folderName, category, defaultLabel)
+    local folder = workspace:WaitForChild(folderName, 5)
+    if not folder then return end
+
+    local function process(child)
+        if child:IsA("Folder") then
+            for _, subChild in ipairs(child:GetChildren()) do process(subChild) end
+            child.ChildAdded:Connect(process)
+        elseif child:IsA("Model") then
+            local label = (category == "Monsters" or category == "Items") and child.Name or defaultLabel
+            addESP(child, label, category)
+        elseif child:IsA("BasePart") then
+            addESP(child, child.Name or defaultLabel, category)
         end
     end
 
-    scanFolderOptimized(workspace:FindFirstChild("MonsterFolder"), "Monsters", "Monster")
-    scanFolderOptimized(workspace:FindFirstChild("OilMachines"), "OilMachines", "Oil Machine")
-    scanFolderOptimized(workspace:FindFirstChild("Computers"), "Computers", "Computer")
-    scanFolderOptimized(workspace:FindFirstChild("Capsules"), "Items", "Capsule")
-    scanFolderOptimized(workspace:FindFirstChild("Items"), "Items", "Item")
-
-    pcall(function()
-        local itemsFolder = lp:FindFirstChild("ItemsFolder")
-        if itemsFolder then
-            for _, inst in ipairs(itemsFolder:GetChildren()) do
-                if inst:IsA("Model") or inst:IsA("BasePart") or inst:IsA("Tool") then
-                    addESP(inst, inst.Name or "PlayerItem", "PlayerItems")
-                end
-            end
-        end
-    end)
+    for _, child in ipairs(folder:GetChildren()) do process(child) end
+    folder.ChildAdded:Connect(process)
 end
 
--- Keeps attachment references connected perfectly across character updates
+task.spawn(setupFolderListener, "MonsterFolder", "Monsters", "Monster")
+task.spawn(setupFolderListener, "OilMachines", "OilMachines", "Oil Machine")
+task.spawn(setupFolderListener, "Computers", "Computers", "Computer")
+task.spawn(setupFolderListener, "Capsules", "Items", "Capsule")
+task.spawn(setupFolderListener, "Items", "Items", "Item")
+
+-- Track Custom Core Character Directory: workspace.Alive
+task.spawn(function()
+    local aliveFolder = workspace:WaitForChild("Alive", 5)
+    if aliveFolder then
+        local function processAliveChar(char)
+            task.wait(0.2)
+            local p = Players:GetPlayerFromCharacter(char)
+            local display = p and p.DisplayName or char.Name
+            if char.Name ~= lp.Name then
+                addESP(char, display, "Players")
+            end
+        end
+        for _, c in ipairs(aliveFolder:GetChildren()) do processAliveChar(c) end
+        aliveFolder.ChildAdded:Connect(processAliveChar)
+    end
+end)
+
 local function updateLocalAttachment()
     local char = lp.Character or lp.CharacterAdded:Wait()
     local hrp  = char:WaitForChild("HumanoidRootPart", 5)
@@ -1932,32 +1961,80 @@ local function updateLocalAttachment()
         end
     end
 end
-
 lp.CharacterAdded:Connect(updateLocalAttachment)
 if lp.Character then task.spawn(updateLocalAttachment) end
 
--- High efficiency looped task running at 10hz instead of per-frame RenderStepped
+-- ── 10Hz Pure Telemetry Execution Loop ─────────────────────
+
 task.spawn(function()
     while true do
         local char = lp.Character
         local hrp  = char and char:FindFirstChild("HumanoidRootPart")
 
-        if hrp and ESP.Enabled and ESP.Distance then
+        if hrp then
             local myPos = hrp.Position
             for model, data in pairs(ESP._objects) do
                 local root = data.root
                 if root and root.Parent then
-                    if data.billboard and data.billboard.Enabled and data.distLabel and data.distLabel.Visible then
-                        local dist = math.floor((myPos - root.Position).Magnitude)
-                        data.distLabel.Text = dist .. " studs"
+                    
+                    -- Crucial Tracer Fix: Ensures tracers NEVER drop or turn blank on screen
+                    if data.trace and myAtt and data.trace.Attachment0 ~= myAtt then
+                        data.trace.Attachment0 = myAtt
+                    end
+
+                    if ESP[data.category] and data.billboard and data.billboard.Enabled and data.distLabel then
+                        
+                        local distStr = ESP.Distance and (math.floor((myPos - root.Position).Magnitude) .. "m") or ""
+                        local extraTelemetry = ""
+
+                        -- Oil Machine Conditions
+                        if data.category == "OilMachines" then
+                            local oilValObj = model:FindFirstChild("OilValue")
+                            local playerUsingObj = model:FindFirstChild("PlayerUsing")
+                            
+                            if oilValObj and ESP.OilSettings.OilValue then
+                                local currentOil = oilValObj.Value
+                                extraTelemetry = extraTelemetry .. "\nOIL: " .. currentOil .. "%"
+                                
+                                -- Instantly kills rendering highlights if completely filled
+                                if currentOil >= 100 then
+                                    if data.highlight then data.highlight.Enabled = false end
+                                else
+                                    if data.highlight then data.highlight.Enabled = ESP.Highlight end
+                                end
+                            end
+                            if playerUsingObj and ESP.OilSettings.ShowPlayer and playerUsingObj.Value then
+                                extraTelemetry = extraTelemetry .. "\nUSER: " .. tostring(playerUsingObj.Value.Name)
+                            end
+
+                        -- Computer Conditions
+                        elseif data.category == "Computers" then
+                            local compPercObj = model:FindFirstChild("ComputerPercentage")
+                            local playerUsingObj = model:FindFirstChild("PlayerUsing")
+                            
+                            if compPercObj and ESP.ComputerSettings.Progress then
+                                extraTelemetry = extraTelemetry .. "\nPROG: " .. compPercObj.Value .. "%"
+                            end
+                            if playerUsingObj and ESP.ComputerSettings.ShowPlayer and playerUsingObj.Value then
+                                extraTelemetry = extraTelemetry .. "\nUSER: " .. tostring(playerUsingObj.Value.Name)
+                            end
+
+                        -- Live Player Status Conditions
+                        elseif data.category == "Players" then
+                            if ESP.PlayerSettings.Health then
+                                local hp = model:GetAttribute("Health") or 100
+                                extraTelemetry = extraTelemetry .. "\nHP: " .. math.floor(hp)
+                            end
+                            if ESP.PlayerSettings.ShowStamina then
+                                local stam = model:GetAttribute("Stamina") or 0
+                                local integerStamina = string.match(tostring(stam), "^(%d+)") or "0"
+                                extraTelemetry = extraTelemetry .. "\nSTM: " .. integerStamina
+                            end
+                        end
+
+                        data.distLabel.Text = distStr .. extraTelemetry
                     end
                 else
-                    cleanEntry(model)
-                end
-            end
-        else
-            for model, data in pairs(ESP._objects) do
-                if not data.root or not data.root.Parent then
                     cleanEntry(model)
                 end
             end
@@ -1966,28 +2043,12 @@ task.spawn(function()
     end
 end)
 
-Players.PlayerAdded:Connect(function(p)
-    p.CharacterAdded:Connect(function(char)
-        task.wait(1)
-        addESP(char, p.DisplayName, "Players")
-    end)
-end)
-
-refreshAll()
-
-task.spawn(function()
-    while true do
-        task.wait(2)
-        refreshAll()
-    end
-end)
-
 -- ══════════════════════════════════
 --   ESP TAB (WindUI Integration)
 -- ══════════════════════════════════
 
 if not _G.Window and not Window then
-    warn("WindUI 'Window' variable not detected. ESP running in Standalone Auto-On Mode.")
+    warn("WindUI 'Window' variable not detected.")
     return
 end
 
@@ -1997,38 +2058,35 @@ local EspTab = TargetWindow:Tab({
     Icon  = "solar:eye-bold",
 })
 
-local EspMainSection = EspTab:Section({ Title = "ESP" })
+local EspMainSection = EspTab:Section({ Title = "Dynamic Framework" })
 
-EspMainSection:Toggle({
-    Title    = "Enable ESP",
-    Icon     = "eye",
-    Value    = false,
-    Callback = function(v)
-        ESP.Enabled = v
-        updateAllVisuals()
-    end,
-})
-
-EspMainSection:Space()
-
--- Players
+-- Players Category Interface
 EspMainSection:Toggle({
     Title    = "Players",
-    Value    = true,
+    Value    = false,
     Callback = function(v) ESP.Players = v; updateAllVisuals() end,
+})
+EspMainSection:Dropdown({
+    Title = "Player Telemetry",
+    Values = {"Show Stamina", "Health Overlay"},
+    Value = {},
+    Multi = true,
+    Callback = function(selected)
+        ESP.PlayerSettings.ShowStamina = checkSelected(selected, "Show Stamina")
+        ESP.PlayerSettings.Health      = checkSelected(selected, "Health Overlay")
+    end
 })
 EspMainSection:Colorpicker({
     Title    = "Players Color",
     Default  = ESP.PlayerColor,
     Callback = function(c) ESP.PlayerColor = c; updateAllVisuals() end,
 })
-
 EspMainSection:Space()
 
--- Monsters
+-- Monsters Category Interface
 EspMainSection:Toggle({
     Title    = "Monsters",
-    Value    = true,
+    Value    = false,
     Callback = function(v) ESP.Monsters = v; updateAllVisuals() end,
 })
 EspMainSection:Colorpicker({
@@ -2036,79 +2094,82 @@ EspMainSection:Colorpicker({
     Default  = ESP.MonsterColor,
     Callback = function(c) ESP.MonsterColor = c; updateAllVisuals() end,
 })
-
 EspMainSection:Space()
 
--- Oil Machines
+-- Oil Machines Category Interface
 EspMainSection:Toggle({
     Title    = "Oil Machines",
-    Value    = true,
+    Value    = false,
     Callback = function(v) ESP.OilMachines = v; updateAllVisuals() end,
+})
+EspMainSection:Dropdown({
+    Title = "Oil Machine Overlays",
+    Values = {"Show Player Tracker", "Oil Capacity Value"},
+    Value = {},
+    Multi = true,
+    Callback = function(selected)
+        ESP.OilSettings.ShowPlayer = checkSelected(selected, "Show Player Tracker")
+        ESP.OilSettings.OilValue   = checkSelected(selected, "Oil Capacity Value")
+    end
 })
 EspMainSection:Colorpicker({
     Title    = "Oil Machines Color",
     Default  = ESP.MachineColor,
     Callback = function(c) ESP.MachineColor = c; updateAllVisuals() end,
 })
-
 EspMainSection:Space()
 
--- Computers
+-- Computers Category Interface
 EspMainSection:Toggle({
     Title    = "Computers",
-    Value    = true,
+    Value    = false,
     Callback = function(v) ESP.Computers = v; updateAllVisuals() end,
+})
+EspMainSection:Dropdown({
+    Title = "Computer Data Addons",
+    Values = {"Show Active User", "Download Progress"},
+    Value = {},
+    Multi = true,
+    Callback = function(selected)
+        ESP.ComputerSettings.ShowPlayer = checkSelected(selected, "Show Active User")
+        ESP.ComputerSettings.Progress   = checkSelected(selected, "Download Progress")
+    end
 })
 EspMainSection:Colorpicker({
     Title    = "Computers Color",
     Default  = ESP.ComputerColor,
     Callback = function(c) ESP.ComputerColor = c; updateAllVisuals() end,
 })
-
 EspMainSection:Space()
 
--- Items
+-- World Items
 EspMainSection:Toggle({
-    Title    = "Items",
-    Value    = true,
+    Title    = "World Items",
+    Value    = false,
     Callback = function(v) ESP.Items = v; updateAllVisuals() end,
 })
 EspMainSection:Colorpicker({
-    Title    = "Items Color",
+    Title    = "World Items Color",
     Default  = ESP.ItemColor,
     Callback = function(c) ESP.ItemColor = c; updateAllVisuals() end,
 })
-EspMainSection:Space()
-EspMainSection:Toggle({
-    Title    = "Player Items",
-    Value    = true,
-    Callback = function(v) ESP.PlayerItems = v; updateAllVisuals() end,
-})
-EspMainSection:Colorpicker({
-    Title    = "Player Items Color",
-    Default  = ESP.PlayerItemColor,
-    Callback = function(c) ESP.PlayerItemColor = c; updateAllVisuals() end,
-})
 
-EspTab:Space()
-
-local EspSettingsSection = EspTab:Section({ Title = "Settings" })
+local EspSettingsSection = EspTab:Section({ Title = "Global Render Styles" })
 
 EspSettingsSection:Toggle({
-    Title    = "Highlight",
+    Title    = "Highlights",
     Value    = true,
     Callback = function(v) ESP.Highlight = v; updateAllVisuals() end,
 })
 
 EspSettingsSection:Slider({
-    Title    = "Fill Transparency",
+    Title    = "Fill Opacity",
     IsTooltip = true,
     IsTextbox = false,
     Value    = { Min = 0, Max = 10, Default = 6 },
     Step     = 1,
     Callback = function(v) ESP.FillTransp = v / 10; updateAllVisuals() end,
 })
-
 EspSettingsSection:Space()
 
 EspSettingsSection:Toggle({
@@ -2116,19 +2177,17 @@ EspSettingsSection:Toggle({
     Value    = true,
     Callback = function(v) ESP.Trace = v; updateAllVisuals() end,
 })
-
 EspSettingsSection:Space()
 
 EspSettingsSection:Toggle({
-    Title    = "Name",
+    Title    = "Render Identity Names",
     Value    = true,
     Callback = function(v) ESP.Name = v; updateAllVisuals() end,
 })
-
 EspSettingsSection:Space()
 
 EspSettingsSection:Toggle({
-    Title    = "Distance",
+    Title    = "Distance Calculations",
     Value    = true,
     Callback = function(v) ESP.Distance = v; updateAllVisuals() end,
 })
@@ -3212,7 +3271,7 @@ createfeedback()
 createsupport()
 WindUI:Notify({
     Title = "announcement",
-    Content = "Hi I need suggestions so please join discord",
+    Content = "sorry for not updating for a while..also please suggestions!",
     Icon = "megaphone", -- lucide icon or "rbxassetid://". optional
     Duration = 6, -- time in seconds. optional
 })
