@@ -3206,9 +3206,10 @@ createsettings()
 createdonor()
 createcustom()
 createfeedback()
+createsupport()
 WindUI:Notify({
     Title = "announcement",
-    Content = "Hi I need suggestions",
+    Content = "Hi I need suggestions so please join discord",
     Icon = "megaphone", -- lucide icon or "rbxassetid://". optional
     Duration = 6, -- time in seconds. optional
 })
