@@ -1,3 +1,6 @@
+if not game:IsLoaded() then
+    game.Loaded:Wait()
+end
 local function copyLink(title, url)
     setclipboard(url)
     game:GetService("StarterGui"):SetCore("SendNotification", {
