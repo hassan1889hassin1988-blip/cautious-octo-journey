@@ -1656,9 +1656,16 @@ UniversalTab:Button({
         end
     end
 })
-local Section = UniversalTab:Section({
-    Title = "Linear",
-    Desc = "exeute ",
+SectionLin = UniversalTab:Section({
+    Title = "Linear Script server hopper",
+    Desc = "This script will teleport you to a server that reached shift 100+ or more so you can reach highest shifts and be in the leaderboard!",
+    Opened = true,
+})
+SectionLin:Button({
+  Title = "Exeute script!",
+  Callback = function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/christmas-cookie/extensions/refs/heads/main/AnimalHospitalServerHopper.lua"))()
+    end
 })
  
 -- ═══════════════════════════════════════════════
