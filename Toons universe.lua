@@ -1901,40 +1901,86 @@ local function addESP(model, labelText, category)
         end
     end)
 end
+-- ── Self-Healing Folder Watcher (Fixes Round-Reset ESP Breaks) ──
 
--- ── Event Handlers ─────────────────────────────────────────
+local function watchFolder(folderName, onChildAdded)
+    local activeConnections = {}
 
-local function setupFolderListener(folderName, category, defaultLabel)
-    local folder = workspace:WaitForChild(folderName, 5)
-    if not folder then return end
+    local function cleanupConnections()
+        for _, conn in ipairs(activeConnections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        table.clear(activeConnections)
+    end
 
     local function process(child)
+        onChildAdded(child)
         if child:IsA("Folder") then
-            for _, subChild in ipairs(child:GetChildren()) do process(subChild) end
-            child.ChildAdded:Connect(process)
-        elseif child:IsA("Model") then
+            local conn = child.ChildAdded:Connect(process)
+            table.insert(activeConnections, conn)
+            for _, subChild in ipairs(child:GetChildren()) do
+                process(subChild)
+            end
+        end
+    end
+
+    local function setupConnection(folder)
+        cleanupConnections() -- Clear any stale connections from previous rounds
+        
+        local conn = folder.ChildAdded:Connect(process)
+        table.insert(activeConnections, conn)
+        
+        for _, child in ipairs(folder:GetChildren()) do
+            process(child)
+        end
+
+        -- Watch for folder deletion to safely clean up connections
+        local destroyConn
+        destroyConn = folder.AncestryChanged:Connect(function(_, parent)
+            if not parent then
+                cleanupConnections()
+                destroyConn:Disconnect()
+            end
+        end)
+    end
+
+    -- Initial setup if folder already exists
+    local initialFolder = workspace:FindFirstChild(folderName)
+    if initialFolder then
+        setupConnection(initialFolder)
+    end
+
+    -- Dynamic hook to catch when the game recreates the folder
+    workspace.ChildAdded:Connect(function(child)
+        if child.Name == folderName then
+            task.wait(0.1) -- Give the engine a frame to build container children
+            setupConnection(child)
+        end
+    end)
+end
+
+local function setupFolderListener(folderName, category, defaultLabel)
+    watchFolder(folderName, function(child)
+        if child:IsA("Model") then
             local label = (category == "Monsters" or category == "Items") and child.Name or defaultLabel
             addESP(child, label, category)
         elseif child:IsA("BasePart") then
             addESP(child, child.Name or defaultLabel, category)
         end
-    end
-
-    for _, child in ipairs(folder:GetChildren()) do process(child) end
-    folder.ChildAdded:Connect(process)
+    end)
 end
 
+-- Hook folders dynamically
 task.spawn(setupFolderListener, "MonsterFolder", "Monsters", "Monster")
 task.spawn(setupFolderListener, "OilMachines", "OilMachines", "Oil Machine")
 task.spawn(setupFolderListener, "Computers", "Computers", "Computer")
 task.spawn(setupFolderListener, "Capsules", "Items", "Capsule")
 task.spawn(setupFolderListener, "Items", "Items", "Item")
 
--- Track Custom Core Character Directory: workspace.Alive
+-- Track players dynamically via the 'Alive' folder
 task.spawn(function()
-    local aliveFolder = workspace:WaitForChild("Alive", 5)
-    if aliveFolder then
-        local function processAliveChar(char)
+    watchFolder("Alive", function(char)
+        if char:IsA("Model") then
             task.wait(0.2)
             local p = Players:GetPlayerFromCharacter(char)
             local display = p and p.DisplayName or char.Name
@@ -1942,10 +1988,9 @@ task.spawn(function()
                 addESP(char, display, "Players")
             end
         end
-        for _, c in ipairs(aliveFolder:GetChildren()) do processAliveChar(c) end
-        aliveFolder.ChildAdded:Connect(processAliveChar)
-    end
+    end)
 end)
+
 
 local function updateLocalAttachment()
     local char = lp.Character or lp.CharacterAdded:Wait()
@@ -3271,7 +3316,7 @@ createfeedback()
 createsupport()
 WindUI:Notify({
     Title = "announcement",
-    Content = "sorry for not updating for a while..also please suggestions!",
+    Content = "Thanks to the person who sent bug report! hopefully fixed!",
     Icon = "megaphone", -- lucide icon or "rbxassetid://". optional
     Duration = 6, -- time in seconds. optional
 })
