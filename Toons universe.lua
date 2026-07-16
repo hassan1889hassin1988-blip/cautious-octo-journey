@@ -2604,7 +2604,7 @@ if not _G.CapsuleLoopStarted then
     end)
 end
 local AuraSection = UtilityTab:Section({
-	Title = "Teleports",
+	Title = "Aura",
 	Box = true,
 })
 -- Configuration States
