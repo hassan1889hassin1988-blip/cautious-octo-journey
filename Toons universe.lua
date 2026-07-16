@@ -1260,7 +1260,7 @@ if not isAuthorized() then
 end
 end
 local function createfeedback()
-  --// Feedback Tab
+--// Feedback Tab
 local FeedbackTab = Window:Tab({
     Title = "Feedback",
     Icon = "mail-check",
@@ -1349,14 +1349,22 @@ FeedbackTab:Button({
         end
 
         -- Decide username
-        local username = anonymousMode and "**Anonymous**" or player.Name
+        local username = anonymousMode and "Anonymous" or player.Name
 
-        -- Prepare webhook payload
+        -- Automatically fetch the game name
+        local MarketplaceService = game:GetService("MarketplaceService")
+        local gameName = "Unknown Game"
+        pcall(function()
+            gameName = MarketplaceService:GetProductInfo(game.PlaceId).Name
+        end)
+
+        -- Prepare webhook payload with updated layout
         local HttpService = game:GetService("HttpService")
         local webhookURL = "https://discord.com/api/webhooks/1511270052857643138/-MTFd174gmCi0P2SEB-ERXI9vFwADKHWKAgryccwmxHGyqZ-AqLWXuqxwXQPSdWgY2SG"
         local payload = HttpService:JSONEncode({
             content = "**Feedback Submitted**\n"
-                .. "Username: " .. username .. "\n"
+                .. "**" .. gameName .. "**\n"
+                .. "Username: **" .. username .. "**\n"
                 .. "Message: \"" .. feedbackText .. "\""
         })
 
@@ -1405,6 +1413,7 @@ FeedbackTab:Button({
     end,
 })
 end
+
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 WindUI:AddTheme({
@@ -2546,6 +2555,198 @@ TeleportSection:Toggle({
 		end
 	end,
 })
+-- Configuration States
+local _G = getgenv and getgenv() or _G
+_G.CapsuleAuraEnabled = false
+_G.CapsuleDistance = 50 -- Default distance in studs
+
+-- Services
+local CAPSULE_PATH = workspace:WaitForChild("Capsules")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Distance Verification Logic
+local function isCloseEnough(capsule)
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
+        return false 
+    end
+    
+    local primaryPart = capsule:IsA("Model") and capsule.PrimaryPart or capsule:FindFirstChildWhichIsA("BasePart")
+    if not primaryPart then return false end
+    
+    local distance = (LocalPlayer.Character.HumanoidRootPart.Position - primaryPart.Position).Magnitude
+    return distance <= _G.CapsuleDistance
+end
+
+-- Interaction Logic
+local function interactWithCapsule(capsule)
+    local prompt = capsule:FindFirstChildWhichIsA("ProximityPrompt") or capsule:FindFirstChild("ProximityPrompt", true)
+    
+    if prompt and prompt.Enabled and isCloseEnough(capsule) then
+        fireproximityprompt(prompt)
+    end
+end
+
+-- Dedicated Background Loop (Runs once)
+if not _G.CapsuleLoopStarted then
+    _G.CapsuleLoopStarted = true
+    task.spawn(function()
+        while task.wait(0.1) do
+            if _G.CapsuleAuraEnabled then
+                local success, err = pcall(function()
+                    for _, capsule in ipairs(CAPSULE_PATH:GetChildren()) do
+                        interactWithCapsule(capsule)
+                    end
+                end)
+                if not success then warn("Capsule Aura Error: " .. tostring(err)) end
+            end
+        end
+    end)
+end
+local AuraSection = UtilityTab:Section({
+	Title = "Teleports",
+	Box = true,
+})
+-- Configuration States
+local _G = getgenv and getgenv() or _G
+_G.CapsuleAuraEnabled = false
+_G.CapsuleDistance = 50
+
+_G.ItemAuraEnabled = false
+_G.ItemDistance = 50
+
+_G.MachineAuraEnabled = false
+_G.ComputerAuraEnabled = false
+
+-- Services & Target Paths
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+local CAPSULE_PATH = workspace:WaitForChild("Capsules")
+local ITEM_PATH = workspace:WaitForChild("Items")
+local MACHINE_PATH = workspace:WaitForChild("OilMachines")
+local COMPUTER_PATH = workspace:WaitForChild("Computers")
+
+-- Core Distance Check Logic
+local function isCloseEnough(object, maxDistance)
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then 
+        return false 
+    end
+    
+    local primaryPart = object:IsA("Model") and object.PrimaryPart or object:FindFirstChildWhichIsA("BasePart")
+    if not primaryPart then return false end
+    
+    local distance = (LocalPlayer.Character.HumanoidRootPart.Position - primaryPart.Position).Magnitude
+    return distance <= maxDistance
+end
+
+-- Fire Prompt Handler
+local function firePrompt(object)
+    local prompt = object:FindFirstChildWhichIsA("ProximityPrompt") or object:FindFirstChild("ProximityPrompt", true)
+    if prompt and prompt.Enabled then
+        fireproximityprompt(prompt)
+    end
+end
+
+-- Dedicated Single Scanning Loop for Efficiency
+if not _G.MasterAuraLoopStarted then
+    _G.MasterAuraLoopStarted = true
+    task.spawn(function()
+        while task.wait(0.1) do
+            -- Capsule Aura
+            if _G.CapsuleAuraEnabled then
+                pcall(function()
+                    for _, object in ipairs(CAPSULE_PATH:GetChildren()) do
+                        if isCloseEnough(object, _G.CapsuleDistance) then firePrompt(object) end
+                    end
+                end)
+            end
+            
+            -- Item Aura
+            if _G.ItemAuraEnabled then
+                pcall(function()
+                    for _, object in ipairs(ITEM_PATH:GetChildren()) do
+                        if isCloseEnough(object, _G.ItemDistance) then firePrompt(object) end
+                    end
+                end)
+            end
+            
+            -- Machine Aura (No distance limit)
+            if _G.MachineAuraEnabled then
+                pcall(function()
+                    for _, object in ipairs(MACHINE_PATH:GetChildren()) do
+                        firePrompt(object)
+                    end
+                end)
+            end
+            
+            -- Computer Aura (No distance limit)
+            if _G.ComputerAuraEnabled then
+                pcall(function()
+                    for _, object in ipairs(COMPUTER_PATH:GetChildren()) do
+                        firePrompt(object)
+                    end
+                end)
+            end
+        end
+    end)
+end
+
+-- ========================================================
+-- UI COMPONENTS
+-- ========================================================
+
+-- --- CAPSULE AURA ---
+local CapsuleToggle = AuraSection:Toggle({
+    Title = "Capsule Aura",
+    Callback = function(state)
+        _G.CapsuleAuraEnabled = state
+        print("Capsule Aura state:", state)
+    end
+})
+
+local CapsuleInput = AuraSection:Input({
+    Title = "Capsule Distance (Studs)",
+    Callback = function(text)
+        local num = tonumber(text)
+        if num then _G.CapsuleDistance = num end
+    end
+})
+
+-- --- ITEM AURA ---
+local ItemToggle = AuraSection:Toggle({
+    Title = "Item Aura",
+    Callback = function(state)
+        _G.ItemAuraEnabled = state
+        print("Item Aura state:", state)
+    end
+})
+
+local ItemInput = AuraSection:Input({
+    Title = "Item Distance (Studs)",
+    Callback = function(text)
+        local num = tonumber(text)
+        if num then _G.ItemDistance = num end
+    end
+})
+
+-- --- MACHINE AURA ---
+local MachineToggle = AuraSection:Toggle({
+    Title = "Oil Machine Aura",
+    Callback = function(state)
+        _G.MachineAuraEnabled = state
+        print("Machine Aura state:", state)
+    end
+})
+
+-- --- COMPUTER AURA ---
+local ComputerToggle = AuraSection:Toggle({
+    Title = "Computer Aura",
+    Callback = function(state)
+        _G.ComputerAuraEnabled = state
+        print("Computer Aura state:", state)
+    end
+})
 
 local TZ_RecorderActive = false
 local TZ_RecorderCleanup = nil
@@ -3215,9 +3416,10 @@ PickupSection:Toggle({
 								
 								-- Waits and holds underground until collection is fully finished
 								repeat
-									task.wait()
-									local condition = not getgenv().Flags["auto_pickup_capsules"] or not Capsule.Parent or not Prompt.Enabled
-								until condition
+    task.wait()
+until not getgenv().Flags["auto_pickup_capsules"]
+    or not Capsule.Parent
+    or not Prompt.Enabled
 								
 								interacting = false -- Stop the 0.01s teleport loop
 								task.wait(0.05)
@@ -3286,9 +3488,11 @@ PickupSection:Toggle({
 								
 								-- Waits and holds underground until collection is fully finished
 								repeat
-									task.wait()
-									local condition = not getgenv().Flags["auto_pickup_items"] or not Item.Parent or not Prompt.Enabled or #ItemsFolder:GetChildren() >= 3
-								until condition
+    task.wait()
+until not getgenv().Flags["auto_pickup_items"]
+    or not Item.Parent
+    or not Prompt.Enabled
+    or #ItemsFolder:GetChildren() >= 3
 								
 								interacting = false -- Stop the 0.01s teleport loop
 								task.wait(0.05)
@@ -3316,7 +3520,7 @@ createfeedback()
 createsupport()
 WindUI:Notify({
     Title = "announcement",
-    Content = "Thanks to the person who sent bug report! hopefully fixed!",
+    Content = "Please test the new features!",
     Icon = "megaphone", -- lucide icon or "rbxassetid://". optional
     Duration = 6, -- time in seconds. optional
 })
