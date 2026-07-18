@@ -2403,6 +2403,536 @@ end)
 ----------------------------------------------------------------
 -- WINDUI TOGGLE
 ----------------------------------------------------------------
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+-- ============================================================================
+-- STATE
+-- ============================================================================
+local AutoFarmState = {
+    Enabled = false,
+    ChasingMonsters = {},
+    SafeBaseplate = nil,
+    IsHiding = false,
+    Interrupted = false,
+    FusesWatcherEnabled = false,
+    HandleElectricBox = false,
+}
+
+local AutoFarmConfig = {
+    SafeBaseplateY = 500,
+    MachineTimeout = 180,
+    CapsuleActivationDistance = 2000,
+}
+
+-- ============================================================================
+-- UTILITY FUNCTIONS
+-- ============================================================================
+local function CreateSafeBaseplate()
+    if AutoFarmState.SafeBaseplate and AutoFarmState.SafeBaseplate.Parent then
+        return AutoFarmState.SafeBaseplate
+    end
+    local baseplate = Instance.new("Part")
+    baseplate.Name = "AutoFarmSafeBaseplate"
+    baseplate.Size = Vector3.new(100, 1, 100)
+    baseplate.Anchored = true
+    baseplate.CanCollide = true
+    baseplate.CanQuery = false
+    baseplate.CanTouch = false
+    baseplate.Transparency = 0.5
+    baseplate.Position = Vector3.new(0, AutoFarmConfig.SafeBaseplateY, 0)
+    baseplate.Parent = workspace
+    AutoFarmState.SafeBaseplate = baseplate
+    return baseplate
+end
+
+local function GetHRP()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function TeleportTo(part, offset)
+    local hrp = GetHRP()
+    if not hrp or not part then return false end
+    hrp.CFrame = CFrame.new(part.Position + (offset or Vector3.new(0, 5, 0)))
+    task.wait(0.05)
+    return true
+end
+
+local function TeleportToMachine(machine)
+    local playerPosition = machine:FindFirstChild("PlayerPosition")
+    if playerPosition then
+        if playerPosition:IsA("BasePart") then
+            return TeleportTo(playerPosition, Vector3.new(0, 0, 0))
+        elseif playerPosition:IsA("Vector3Value") then
+            local hrp = GetHRP()
+            if hrp then hrp.CFrame = CFrame.new(playerPosition.Value) task.wait(0.05) return true end
+        elseif playerPosition:IsA("CFrameValue") then
+            local hrp = GetHRP()
+            if hrp then hrp.CFrame = playerPosition.Value task.wait(0.05) return true end
+        end
+    end
+    local targetPart = machine:FindFirstChild("PromptPart") or machine:FindFirstChild("RootPart") or machine.PrimaryPart
+    if not targetPart then return false end
+    return TeleportTo(targetPart)
+end
+
+local function FindProximityPrompt(model)
+    for _, descendant in pairs(model:GetDescendants()) do
+        if descendant:IsA("ProximityPrompt") then return descendant end
+    end
+    return nil
+end
+
+local function IsBeingChased()
+    return #AutoFarmState.ChasingMonsters > 0
+end
+
+local function SmartFirePrompt(model, stopConditionFn, maxTime, activationDistance)
+    local prompt = FindProximityPrompt(model)
+    if not prompt then return false end
+
+    local originalMaxDist = prompt.MaxActivationDistance
+    local originalLOS = prompt.RequiresLineOfSight
+    prompt.MaxActivationDistance = activationDistance or 50
+    prompt.RequiresLineOfSight = false
+
+    local isVisible = prompt.Enabled
+    local shownConn = prompt.PromptShown:Connect(function() isVisible = true end)
+    local hiddenConn = prompt.PromptHidden:Connect(function() isVisible = false end)
+
+    local startTime = tick()
+    local fired = false
+
+    while AutoFarmState.Enabled do
+        if IsBeingChased() then break end
+        if stopConditionFn and stopConditionFn() then fired = true break end
+        if tick() - startTime > (maxTime or 60) then break end
+        if prompt.Enabled and isVisible then
+            prompt:InputHoldBegin()
+            task.wait(prompt.HoldDuration + 0.1)
+            prompt:InputHoldEnd()
+        else
+            task.wait(0.2)
+        end
+    end
+
+    shownConn:Disconnect()
+    hiddenConn:Disconnect()
+    prompt.MaxActivationDistance = originalMaxDist
+    prompt.RequiresLineOfSight = originalLOS
+    return fired
+end
+
+-- ============================================================================
+-- FUSES & ELECTRIC BOX
+-- ============================================================================
+local function GetReplicatedFusesSound()
+    local assets = ReplicatedStorage:FindFirstChild("Assets")
+    local sfx = assets and assets:FindFirstChild("SFX")
+    return sfx and sfx:FindFirstChild("Fuses")
+end
+
+local function HideWhileSoundPlays(soundInstance)
+    if not soundInstance then return end
+    local hrp = GetHRP()
+    if not hrp then return end
+    local baseplate = CreateSafeBaseplate()
+    hrp.CFrame = baseplate.CFrame + Vector3.new(0, 10, 0)
+    local start = tick()
+    while AutoFarmState.FusesWatcherEnabled and (soundInstance.IsPlaying or soundInstance.PlaybackState == Enum.PlaybackState.Playing) do
+        if IsBeingChased() then break end
+        if tick() - start > 60 then break end
+        task.wait(0.1)
+    end
+    task.wait(0.4)
+end
+
+local function CollectFusesFromWorkspace()
+    local itemsRoot = workspace:FindFirstChild("Items")
+    if not itemsRoot then return end
+
+    local targets = {}
+    local fuse = itemsRoot:FindFirstChild("Fuse")
+    if fuse then table.insert(targets, fuse) end
+    local children = itemsRoot:GetChildren()
+    if #children >= 3 and children[3] then table.insert(targets, children[3]) end
+    local socks = itemsRoot:FindFirstChild("Socks")
+    if socks then table.insert(targets, socks) end
+
+    for _, item in pairs(targets) do
+        if not AutoFarmState.FusesWatcherEnabled or IsBeingChased() then return end
+        local targetPart = item:IsA("BasePart") and item or (item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart"))
+        if targetPart then
+            TeleportTo(targetPart)
+            task.wait(0.08)
+            local prompt = FindProximityPrompt(item)
+            if prompt then
+                local origMax = prompt.MaxActivationDistance
+                local origLOS = prompt.RequiresLineOfSight
+                prompt.MaxActivationDistance = 2000
+                prompt.RequiresLineOfSight = false
+                prompt:InputHoldBegin()
+                task.wait((prompt.HoldDuration or 0.1) + 0.05)
+                prompt:InputHoldEnd()
+                prompt.MaxActivationDistance = origMax
+                prompt.RequiresLineOfSight = origLOS
+                task.wait(0.12)
+            end
+        end
+    end
+end
+
+local function TeleportToExitElevator()
+    -- Prioritize the workspace root elevator first
+    local elevator = workspace:FindFirstChild("Elevator")
+    if not elevator then
+        local map = workspace:FindFirstChild("Map")
+        local specialFolder = map and map:FindFirstChild("SpecialFolder")
+        elevator = specialFolder and specialFolder:FindFirstChild("ExitElevator")
+    end
+
+    if not elevator then
+        print("[AutoFarm] ExitElevator could not be found anywhere!")
+        return
+    end
+
+    local targetPart = elevator:IsA("Model") and (elevator.PrimaryPart or elevator:FindFirstChildWhichIsA("BasePart")) or elevator
+    if targetPart then
+        print("[AutoFarm] Teleporting to exit elevator: " .. elevator:GetFullName())
+        TeleportTo(targetPart)
+    end
+end
+
+
+local function UseFuseboxHandleAndExit()
+    if not AutoFarmState.FusesWatcherEnabled then return end
+    local success = false
+    pcall(function()
+        local ugcRoot = workspace:FindFirstChild("Ugc") and workspace.Ugc:FindFirstChild("Workspace")
+        local special = ugcRoot and ugcRoot:FindFirstChild("Map") and ugcRoot.Map:FindFirstChild("SpecialFolder")
+        local fusebox = special and special:FindFirstChild("Fusebox")
+        local handle = fusebox and fusebox:FindFirstChild("Handle")
+        local prompt = handle and FindProximityPrompt(handle)
+
+        if prompt then
+            local part = prompt.Parent:IsA("BasePart") and prompt.Parent or prompt.Parent:FindFirstChildWhichIsA("BasePart")
+            if part then TeleportTo(part) end
+            prompt.MaxActivationDistance = 2000
+            prompt.RequiresLineOfSight = false
+            prompt:InputHoldBegin()
+            task.wait((prompt.HoldDuration or 0.1) + 0.05)
+            prompt:InputHoldEnd()
+            success = true
+        end
+
+        if not success then
+            local map = workspace:FindFirstChild("Map")
+            local spec = map and map:FindFirstChild("SpecialFolder")
+            local eb = spec and spec:FindFirstChild("ElectricBoxes") and spec.ElectricBoxes:FindFirstChild("ElectricBox")
+            local p = eb and eb:FindFirstChild("PromptPart") and FindProximityPrompt(eb.PromptPart)
+            if p then
+                TeleportTo(eb.PromptPart)
+                p.MaxActivationDistance = 2000
+                p.RequiresLineOfSight = false
+                p:InputHoldBegin()
+                task.wait((p.HoldDuration or 0.1) + 0.05)
+                p:InputHoldEnd()
+                success = true
+            end
+        end
+    end)
+    task.wait(0.2)
+    TeleportToExitElevator()
+end
+
+local function StartFusesWatcher()
+    print("[DEBUG] Fuses Watcher thread spawned.")
+    task.spawn(function()
+        local repFuses = GetReplicatedFusesSound()
+        local function IsFusesSoundInstance(s)
+            if not s or not s:IsA("Sound") then return false end
+            return s.Name == "Fuses" or (repFuses and s.SoundId == repFuses.SoundId)
+        end
+
+        local function OnFusesPlay(soundInst)
+            if not AutoFarmState.FusesWatcherEnabled or IsBeingChased() then return end
+            HideWhileSoundPlays(soundInst)
+            if not AutoFarmState.FusesWatcherEnabled then return end
+            CollectFusesFromWorkspace()
+            UseFuseboxHandleAndExit()
+        end
+
+        for _, desc in pairs(workspace:GetDescendants()) do
+            if IsFusesSoundInstance(desc) then
+                desc.Changed:Connect(function(prop)
+                    if (prop == "IsPlaying" or prop == "PlaybackState") and desc.IsPlaying then OnFusesPlay(desc) end
+                end)
+            end
+        end
+
+        workspace.DescendantAdded:Connect(function(desc)
+            if IsFusesSoundInstance(desc) then
+                task.wait(0.04)
+                desc.Changed:Connect(function(prop)
+                    if (prop == "IsPlaying" or prop == "PlaybackState") and desc.IsPlaying then OnFusesPlay(desc) end
+                end)
+            end
+        end)
+    end)
+end
+
+local function ProcessElectricBox()
+    if not AutoFarmState.HandleElectricBox or IsBeingChased() then return end
+    local map = workspace:FindFirstChild("Map")
+    local special = map and map:FindFirstChild("SpecialFolder")
+    local eb = special and special:FindFirstChild("ElectricBoxes") and special.ElectricBoxes:FindFirstChild("ElectricBox")
+    local promptPart = eb and eb:FindFirstChild("PromptPart")
+    local prompt = promptPart and FindProximityPrompt(promptPart)
+    
+    if prompt then
+        TeleportTo(promptPart)
+        prompt.MaxActivationDistance = 2000
+        prompt.RequiresLineOfSight = false
+        prompt:InputHoldBegin()
+        task.wait((prompt.HoldDuration or 0.1) + 0.05)
+        prompt:InputHoldEnd()
+        task.wait(0.2)
+    end
+end
+
+-- ============================================================================
+-- MAIN RUNNERS & WATCHERS
+-- ============================================================================
+local function HookChaseDetection()
+    print("[DEBUG] Hooking Chase Remotes...")
+    local remotes = ReplicatedStorage:WaitForChild("Remotes", 5)
+    local chaseRemote = remotes and remotes:WaitForChild("Chase", 5)
+    
+    if not chaseRemote then
+        warn("[DEBUG] Chase remote could not be located in ReplicatedStorage.Remotes.")
+        return
+    end
+
+    chaseRemote.OnClientEvent:Connect(function(monster, status)
+        if status == "Started" then
+            if monster and not table.find(AutoFarmState.ChasingMonsters, monster) then
+                table.insert(AutoFarmState.ChasingMonsters, monster)
+            end
+        else
+            if monster then
+                local idx = table.find(AutoFarmState.ChasingMonsters, monster)
+                if idx then table.remove(AutoFarmState.ChasingMonsters, idx) end
+            end
+        end
+    end)
+    print("[DEBUG] Chase Remotes hooked successfully.")
+end
+
+local function StartChaseWatcher()
+    print("[DEBUG] Chase Background Watcher initiated.")
+    task.spawn(function()
+        while true do
+            if AutoFarmState.Enabled and IsBeingChased() and not AutoFarmState.IsHiding then
+                AutoFarmState.IsHiding = true
+                local hrp = GetHRP()
+                if hrp then
+                    local baseplate = CreateSafeBaseplate()
+                    hrp.CFrame = baseplate.CFrame + Vector3.new(0, 10, 0)
+                end
+                while IsBeingChased() and AutoFarmState.Enabled do
+                    local hrp2 = GetHRP()
+                    if hrp2 and AutoFarmState.SafeBaseplate then
+                        if (hrp2.Position - AutoFarmState.SafeBaseplate.Position).Magnitude > 60 then
+                            hrp2.CFrame = AutoFarmState.SafeBaseplate.CFrame + Vector3.new(0, 10, 0)
+                        end
+                    end
+                    task.wait(0.5)
+                end
+                task.wait(2)
+                AutoFarmState.Interrupted = true
+                AutoFarmState.IsHiding = false
+            end
+            task.wait(0.25)
+        end
+    end)
+end
+
+-- ============================================================================
+-- GAME STEPS (Stubs handled inside Loop)
+-- ============================================================================
+local function ProcessCapsules()
+    local capsules = workspace:FindFirstChild("Capsules")
+    if not capsules then return end
+    for _, capsule in pairs(capsules:GetChildren()) do
+        if not AutoFarmState.Enabled or AutoFarmState.Interrupted or IsBeingChased() then return end
+        if capsule:IsA("Model") then
+            TeleportToMachine(capsule)
+            local prompt = FindProximityPrompt(capsule)
+            if prompt then
+                local origMax = prompt.MaxActivationDistance
+                local origLOS = prompt.RequiresLineOfSight
+                prompt.MaxActivationDistance = AutoFarmConfig.CapsuleActivationDistance or 2000
+                prompt.RequiresLineOfSight = false
+                
+                -- Fast executor bypass
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                else
+                    prompt:InputHoldBegin()
+                    task.wait(prompt.HoldDuration + 0.02)
+                    prompt:InputHoldEnd()
+                end
+                
+                prompt.MaxActivationDistance = origMax
+                prompt.RequiresLineOfSight = origLOS
+            end
+            task.wait(0.05) -- Fast reset delay
+        end
+    end
+end
+
+
+local function ProcessOilMachines()
+    local oilMachines = workspace:FindFirstChild("OilMachines")
+    if not oilMachines then return end
+    local skipped = {}
+    while AutoFarmState.Enabled and not AutoFarmState.Interrupted and not IsBeingChased() do
+        local target = nil
+        for _, m in pairs(oilMachines:GetChildren()) do
+            local val = m:FindFirstChild("OilValue")
+            if val and val.Value < 100 and not skipped[m] then target = m break end
+        end
+        if not target then break end
+        TeleportToMachine(target)
+        SmartFirePrompt(target, function() return target:FindFirstChild("OilValue") and target.OilValue.Value >= 100 end, AutoFarmConfig.MachineTimeout)
+    end
+end
+
+local function ProcessComputers()
+    local computers = workspace:FindFirstChild("Computers")
+    if not computers then return end
+    while AutoFarmState.Enabled and not AutoFarmState.Interrupted and not IsBeingChased() do
+        local target = nil
+        for _, c in pairs(computers:GetChildren()) do
+            local pct = c:FindFirstChild("ComputerPercentage")
+            if pct and pct.Value < 100 then target = c break end
+        end
+        if not target then break end
+        TeleportToMachine(target)
+        SmartFirePrompt(target, function() return target:FindFirstChild("ComputerPercentage") and target.ComputerPercentage.Value >= 100 end, AutoFarmConfig.MachineTimeout)
+    end
+end
+
+local function ProcessBigMachine()
+    local map = workspace:FindFirstChild("Map")
+    local special = map and map:FindFirstChild("SpecialFolder")
+    local bigMachine = special and special:FindFirstChild("BigMachine")
+    if not bigMachine or IsBeingChased() then return end
+
+    local comp = bigMachine:FindFirstChild("Computer")
+    local mach = bigMachine:FindFirstChild("Machine")
+
+    if comp and AutoFarmState.Enabled and not AutoFarmState.Interrupted and not IsBeingChased() then
+        local pct = comp:FindFirstChild("ComputerPercentage")
+        if pct and pct.Value < 100 then
+            TeleportToMachine(comp)
+            SmartFirePrompt(comp, function() return pct.Value >= 100 end, AutoFarmConfig.MachineTimeout)
+        end
+    end
+    if mach and AutoFarmState.Enabled and not AutoFarmState.Interrupted and not IsBeingChased() then
+        local oil = mach:FindFirstChild("OilValue")
+        if oil and oil.Value < 100 then
+            TeleportToMachine(mach)
+            SmartFirePrompt(mach, function() return oil.Value >= 100 end, AutoFarmConfig.MachineTimeout)
+        end
+    end
+end
+
+local function WaitForFloorCompletion()
+    local mapStats = workspace:FindFirstChild("MapStats")
+    local comp = mapStats and mapStats:FindFirstChild("IsFloorCompleted")
+    if not comp then return end
+    while not comp.Value and AutoFarmState.Enabled and not AutoFarmState.Interrupted and not IsBeingChased() do
+        task.wait(1)
+    end
+    if AutoFarmState.Enabled and not AutoFarmState.Interrupted and comp.Value then
+        TeleportToExitElevator()
+        task.wait(2)
+    end
+end
+
+local function AutoFarmMainLoop()
+    while AutoFarmState.Enabled do
+        AutoFarmState.Interrupted = false
+        local mapStats = workspace:FindFirstChild("MapStats")
+        if mapStats and mapStats:FindFirstChild("GameActive") and not mapStats.GameActive.Value then
+            task.wait(2) continue
+        end
+        if IsBeingChased() or AutoFarmState.IsHiding then task.wait(0.5) continue end
+
+        ProcessCapsules()
+        if not AutoFarmState.Enabled or AutoFarmState.Interrupted then continue end
+
+        ProcessOilMachines()
+        if not AutoFarmState.Enabled or AutoFarmState.Interrupted then continue end
+
+        ProcessComputers()
+        if not AutoFarmState.Enabled or AutoFarmState.Interrupted then continue end
+
+        if AutoFarmState.HandleElectricBox then ProcessElectricBox() end
+        if not AutoFarmState.Enabled or AutoFarmState.Interrupted then continue end
+
+        ProcessBigMachine()
+        WaitForFloorCompletion()
+        task.wait(1)
+    end
+end
+
+-- ============================================================================
+-- INITIALIZATION CALLS
+-- ============================================================================
+HookChaseDetection()
+StartChaseWatcher()
+
+-- Checkpoint 4: Compiling UI elements
+print("[DEBUG] Compiling Toggle 1 (Auto Farm)...")
+AutomationTab:Toggle({
+    Title = "Auto Farm",
+    Desc = "",
+    Icon = "star",
+    Flag = "AutoFarmMainToggle",
+    Value = false,
+    Callback = function(value)
+        AutoFarmState.Enabled = value
+        AutoFarmState.FusesWatcherEnabled = value
+        if value then
+            CreateSafeBaseplate()
+            StartFusesWatcher()
+            task.spawn(AutoFarmMainLoop)
+        else
+            AutoFarmState.ChasingMonsters = {}
+            AutoFarmState.IsHiding = false
+        end
+    end,
+})
+print("[DEBUG] Toggle 1 generated.")
+
+print("[DEBUG] Compiling Toggle 2 (Electric Box)...")
+AutomationTab:Toggle({
+    Title = "Auto Handle ElectricBox",
+    Desc = "make make it so the auto farm will also do electrical box for blackouts",
+    Icon = "zap",
+    Flag = "ElectricBoxToggle",
+    Value = false,
+    Callback = function(value)
+        AutoFarmState.HandleElectricBox = value
+    end,
+})
+
 AutomationTab:Toggle({
     Title = "Auto Skillcheck",
     Desc = "",
@@ -2746,6 +3276,71 @@ local ComputerToggle = AuraSection:Toggle({
         _G.ComputerAuraEnabled = state
         print("Computer Aura state:", state)
     end
+})
+local OtherSection = UtilityTab:Section({
+	Title = "Stuff",
+	Box = true,
+})
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+
+local ChaseRemote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Chase")
+local AutoTpConnection = nil
+local SavedPosition = nil
+local ReturnDelay = 2
+
+OtherSection:Slider({
+	Title = "Return Delay (Seconds)",
+	Step = 0.5,
+	Value = {
+		Min = 0,
+		Max = 10,
+		Default = 2,
+	},
+	Callback = function(value)
+		ReturnDelay = value
+	end,
+})
+
+OtherSection:Toggle({
+	Title = "Auto Escape on Chase",
+	Value = false,
+	Callback = function(state)
+		if state then
+			AutoTpConnection = ChaseRemote.OnClientEvent:Connect(function(monster, status)
+				local Character = LocalPlayer.Character
+				local Root = Character and Character:FindFirstChild("HumanoidRootPart")
+				
+				if not Root then return end
+
+				if status == "Started" then
+					if not SavedPosition then
+						SavedPosition = Root.CFrame
+					end
+					Root.CFrame = CFrame.new(0, 10000, 0)
+				elseif status == "Stopped" or status == "Ended" then
+					if SavedPosition then
+						local PositionToRestore = SavedPosition
+						SavedPosition = nil
+						task.delay(ReturnDelay, function()
+							local CurrentCharacter = LocalPlayer.Character
+							local CurrentRoot = CurrentCharacter and CurrentCharacter:FindFirstChild("HumanoidRootPart")
+							if CurrentRoot then
+								CurrentRoot.CFrame = PositionToRestore
+							end
+						end)
+					end
+				end
+			end)
+		else
+			if AutoTpConnection then
+				AutoTpConnection:Disconnect()
+				AutoTpConnection = nil
+			end
+			SavedPosition = nil
+		end
+	end,
 })
 
 local TZ_RecorderActive = false
@@ -3520,7 +4115,7 @@ createfeedback()
 createsupport()
 WindUI:Notify({
     Title = "announcement",
-    Content = "Please test the new features!",
+    Content = "hi",
     Icon = "megaphone", -- lucide icon or "rbxassetid://". optional
     Duration = 6, -- time in seconds. optional
 })
